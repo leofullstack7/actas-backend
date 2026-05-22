@@ -170,7 +170,7 @@ CERO Markdown. CERO resúmenes. Este es el texto final del acta, debe cerrar com
 
     response = client.chat.completions.create(
         model="gpt-4o",
-        max_tokens=4096,
+        max_tokens=16000,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
