@@ -4,8 +4,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from pydantic import BaseModel
-import yt_dlp
-import json
+import httpx
+from urllib.parse import urlparse, parse_qs
 from openai import OpenAI
 import os
 
@@ -73,39 +73,59 @@ class ActaRequest(BaseModel):
     youtubeUrl: str
 
 
-async def get_transcript(youtube_url: str) -> str:
-    ydl_opts = {
-        'skip_download': True,
-        'writesubtitles': True,
-        'writeautomaticsub': True,
-        'subtitleslangs': ['es', 'es-419', 'es-CO', 'en'],
-        'subtitlesformat': 'json3',
-        'quiet': True,
-    }
+def extract_video_id(youtube_url: str) -> str:
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
-            subs = info.get('subtitles') or info.get('automatic_captions') or {}
-            for lang in ['es', 'es-419', 'es-CO', 'en']:
-                if lang in subs:
-                    for fmt in subs[lang]:
-                        if fmt.get('ext') == 'json3':
-                            import httpx
-                            async with httpx.AsyncClient() as client:
-                                resp = await client.get(fmt['url'])
-                                data = resp.json()
-                                text = ' '.join(
-                                    e.get('utf8', '') or e.get('text', '')
-                                    for event in data.get('events', [])
-                                    for e in event.get('segs', [])
-                                ).strip()
-                                if text:
-                                    return text
-        raise HTTPException(status_code=422, detail="No se encontró transcripción para este video.")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Error obteniendo transcripción: {str(e)}")
+        u = urlparse(youtube_url)
+        if u.hostname in ("youtu.be",):
+            return u.path.lstrip("/")
+        if u.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
+            if u.path.startswith("/watch"):
+                return parse_qs(u.query).get("v", [None])[0]
+            if u.path.startswith("/live/") or u.path.startswith("/shorts/"):
+                return u.path.split("/")[2]
+    except Exception:
+        pass
+    raise HTTPException(status_code=422, detail="No se pudo extraer el ID del video.")
+
+
+async def get_transcript(youtube_url: str) -> str:
+    video_id = extract_video_id(youtube_url)
+    api_key = os.environ.get("YOUTUBE_API_KEY")
+
+    async with httpx.AsyncClient() as http:
+        captions_resp = await http.get(
+            "https://www.googleapis.com/youtube/v3/captions",
+            params={"part": "snippet", "videoId": video_id, "key": api_key},
+        )
+        if captions_resp.status_code != 200:
+            raise HTTPException(status_code=422, detail=f"Error YouTube API: {captions_resp.text}")
+
+        captions_data = captions_resp.json()
+        items = captions_data.get("items", [])
+        if not items:
+            raise HTTPException(status_code=422, detail="Este video no tiene subtítulos disponibles.")
+
+        caption_id = None
+        for item in items:
+            lang = item["snippet"]["language"]
+            if lang.startswith("es"):
+                caption_id = item["id"]
+                break
+        if not caption_id:
+            caption_id = items[0]["id"]
+
+        transcript_resp = await http.get(
+            f"https://www.googleapis.com/youtube/v3/captions/{caption_id}",
+            params={"tfmt": "srt", "key": api_key},
+        )
+        if transcript_resp.status_code != 200:
+            raise HTTPException(status_code=422, detail="No se pudo descargar la transcripción.")
+
+        import re
+        text = re.sub(r'\d+\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n', '', transcript_resp.text)
+        text = re.sub(r'<[^>]+>', '', text)
+        text = ' '.join(text.split())
+        return text
 
 
 def generar_parte(transcripcion: str, parte: int, parte_anterior: str = "") -> str:
