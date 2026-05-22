@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import httpx
 import os
 from openai import OpenAI
+from youtube_transcript_api import YouTubeTranscriptApi
+from urllib.parse import urlparse, parse_qs
 
 app = FastAPI()
 
@@ -15,8 +16,6 @@ app.add_middleware(
 )
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-
-SUPADATA_API_KEY = os.environ.get("SUPADATA_API_KEY")
 
 SYSTEM_PROMPT = """Eres la secretaria de despacho del Honorable Concejo de Manizales. Redactas ACTAS OFICIALES con estilo jurídico-administrativo colombiano.
 
@@ -52,20 +51,28 @@ class ActaRequest(BaseModel):
     youtubeUrl: str
 
 
+def extract_video_id(youtube_url: str) -> str:
+    try:
+        u = urlparse(youtube_url)
+        if u.hostname in ("youtu.be",):
+            return u.path.lstrip("/")
+        if u.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
+            if u.path.startswith("/watch"):
+                return parse_qs(u.query).get("v", [None])[0]
+            if u.path.startswith("/live/") or u.path.startswith("/shorts/"):
+                return u.path.split("/")[2]
+    except Exception:
+        pass
+    raise HTTPException(status_code=422, detail="No se pudo extraer el ID del video.")
+
+
 async def get_transcript(youtube_url: str) -> str:
-    async with httpx.AsyncClient(timeout=60.0) as client_http:
-        resp = await client_http.get(
-            "https://api.supadata.ai/v1/youtube/transcript",
-            params={"url": youtube_url, "text": "true"},
-            headers={"x-api-key": SUPADATA_API_KEY},
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Supadata error: {resp.text}")
-        data = resp.json()
-        transcript = data.get("content") or data.get("text") or ""
-        if not transcript:
-            raise HTTPException(status_code=422, detail="No se encontró transcripción para este video.")
-        return transcript
+    video_id = extract_video_id(youtube_url)
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=["es", "es-419", "es-CO", "en"])
+        return " ".join([t["text"] for t in transcript])
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"No se encontró transcripción: {str(e)}")
 
 
 def generar_parte(transcripcion: str, parte: int, parte_anterior: str = "") -> str:
