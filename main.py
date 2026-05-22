@@ -5,7 +5,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from pydantic import BaseModel
 import httpx
-from urllib.parse import urlparse, parse_qs
 from openai import OpenAI
 import os
 
@@ -73,49 +72,19 @@ class ActaRequest(BaseModel):
     youtubeUrl: str
 
 
-def extract_video_id(youtube_url: str) -> str:
-    try:
-        u = urlparse(youtube_url)
-        if u.hostname in ("youtu.be",):
-            return u.path.lstrip("/")
-        if u.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
-            if u.path.startswith("/watch"):
-                return parse_qs(u.query).get("v", [None])[0]
-            if u.path.startswith("/live/") or u.path.startswith("/shorts/"):
-                return u.path.split("/")[2]
-    except Exception:
-        pass
-    raise HTTPException(status_code=422, detail="No se pudo extraer el ID del video.")
-
-
 async def get_transcript(youtube_url: str) -> str:
-    video_id = extract_video_id(youtube_url)
-    async with httpx.AsyncClient() as http:
+    async with httpx.AsyncClient(timeout=60.0) as http:
         resp = await http.get(
-            f"https://www.youtube.com/watch?v={video_id}",
-            headers={"Accept-Language": "es-CO,es;q=0.9"},
+            "https://api.supadata.ai/v1/youtube/transcript",
+            params={"url": youtube_url, "text": "true"},
+            headers={"x-api-key": os.environ.get("SUPADATA_API_KEY")},
         )
-        html = resp.text
-
-        import re
-        match = re.search(r'"captionTracks":\[.*?"baseUrl":"(.*?)"', html)
-        if not match:
-            raise HTTPException(status_code=422, detail="No se encontró transcripción para este video.")
-
-        caption_url = match.group(1).replace('\\u0026', '&')
-
-        caption_resp = await http.get(caption_url)
-        xml = caption_resp.text
-
-        texts = re.findall(r'<text[^>]*>(.*?)</text>', xml)
-        import html as html_parser
-        transcript = ' '.join(html_parser.unescape(t) for t in texts)
-        transcript = re.sub(r'<[^>]+>', '', transcript)
-        transcript = ' '.join(transcript.split())
-
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Supadata error: {resp.text}")
+        data = resp.json()
+        transcript = data.get("content") or data.get("text") or ""
         if not transcript:
-            raise HTTPException(status_code=422, detail="No se pudo extraer el texto de la transcripción.")
-
+            raise HTTPException(status_code=422, detail="No se encontró transcripción para este video.")
         return transcript
 
 
