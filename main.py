@@ -90,42 +90,33 @@ def extract_video_id(youtube_url: str) -> str:
 
 async def get_transcript(youtube_url: str) -> str:
     video_id = extract_video_id(youtube_url)
-    api_key = os.environ.get("YOUTUBE_API_KEY")
-
     async with httpx.AsyncClient() as http:
-        captions_resp = await http.get(
-            "https://www.googleapis.com/youtube/v3/captions",
-            params={"part": "snippet", "videoId": video_id, "key": api_key},
+        resp = await http.get(
+            f"https://www.youtube.com/watch?v={video_id}",
+            headers={"Accept-Language": "es-CO,es;q=0.9"},
         )
-        if captions_resp.status_code != 200:
-            raise HTTPException(status_code=422, detail=f"Error YouTube API: {captions_resp.text}")
-
-        captions_data = captions_resp.json()
-        items = captions_data.get("items", [])
-        if not items:
-            raise HTTPException(status_code=422, detail="Este video no tiene subtítulos disponibles.")
-
-        caption_id = None
-        for item in items:
-            lang = item["snippet"]["language"]
-            if lang.startswith("es"):
-                caption_id = item["id"]
-                break
-        if not caption_id:
-            caption_id = items[0]["id"]
-
-        transcript_resp = await http.get(
-            f"https://www.googleapis.com/youtube/v3/captions/{caption_id}",
-            params={"tfmt": "srt", "key": api_key},
-        )
-        if transcript_resp.status_code != 200:
-            raise HTTPException(status_code=422, detail="No se pudo descargar la transcripción.")
+        html = resp.text
 
         import re
-        text = re.sub(r'\d+\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n', '', transcript_resp.text)
-        text = re.sub(r'<[^>]+>', '', text)
-        text = ' '.join(text.split())
-        return text
+        match = re.search(r'"captionTracks":\[.*?"baseUrl":"(.*?)"', html)
+        if not match:
+            raise HTTPException(status_code=422, detail="No se encontró transcripción para este video.")
+
+        caption_url = match.group(1).replace('\\u0026', '&')
+
+        caption_resp = await http.get(caption_url)
+        xml = caption_resp.text
+
+        texts = re.findall(r'<text[^>]*>(.*?)</text>', xml)
+        import html as html_parser
+        transcript = ' '.join(html_parser.unescape(t) for t in texts)
+        transcript = re.sub(r'<[^>]+>', '', transcript)
+        transcript = ' '.join(transcript.split())
+
+        if not transcript:
+            raise HTTPException(status_code=422, detail="No se pudo extraer el texto de la transcripción.")
+
+        return transcript
 
 
 def generar_parte(transcripcion: str, parte: int, parte_anterior: str = "") -> str:
