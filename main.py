@@ -143,7 +143,7 @@ Termina tu texto EXACTAMENTE con esta frase:
 
 CERO Markdown. CERO resúmenes. Desarrolla cada punto con el máximo detalle posible."""
 
-    else:
+    elif parte == 3:
         user_prompt = f"""TRANSCRIPCIÓN COMPLETA DE LA SESIÓN:
 {transcripcion}
 
@@ -167,6 +167,32 @@ Para el cierre de la sesión incluye obligatoriamente:
 - Firma de la Secretaria de Despacho y del Presidente del Concejo
 
 CERO Markdown. CERO resúmenes. Este es el texto final del acta, debe cerrar completamente."""
+
+    elif parte == 4:
+        user_prompt = f"""TRANSCRIPCIÓN COMPLETA DE LA SESIÓN:
+{transcripcion[-8000:]}
+
+FINAL DE LA TERCERA PARTE (continúa exactamente desde aquí):
+{parte_anterior[-3000:]}
+
+INSTRUCCIONES:
+Continúa y CIERRA el acta definitivamente desde donde terminó la tercera parte. Este es el párrafo final del documento.
+
+Incluye obligatoriamente:
+- Cualquier intervención pendiente que aparezca en la transcripción
+- Proposición de clausura con su proponente
+- Fórmula exacta: "No siendo otro el objeto de la presente sesión, el señor Presidente declaró clausurada la sesión, siendo las [hora]."
+- Bloque de firmas:
+
+Para constancia se firma la presente acta,
+
+[NOMBRE PRESIDENTE]
+Presidente Honorable Concejo de Manizales
+
+[NOMBRE SECRETARIA]
+Secretaria de Despacho
+
+CERO Markdown. CERO resúmenes. Cierra el documento completamente."""
 
     message = client.messages.create(
         model="claude-opus-4-5",
@@ -193,8 +219,9 @@ async def generar_acta(req: ActaRequest):
     parte1 = generar_parte(transcripcion, 1)
     parte2 = generar_parte(transcripcion, 2, parte1)
     parte3 = generar_parte(transcripcion, 3, parte2)
+    parte4 = generar_parte(transcripcion, 4, parte3)
 
-    acta_completa = parte1 + "\n\n" + parte2 + "\n\n" + parte3
+    acta_completa = parte1 + "\n\n" + parte2 + "\n\n" + parte3 + "\n\n" + parte4
 
     return {"acta": acta_completa, "palabras": len(acta_completa.split())}
 
