@@ -5,7 +5,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from pydantic import BaseModel
 import httpx
-from openai import OpenAI
+import anthropic
 import os
 
 app = FastAPI()
@@ -36,7 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 SYSTEM_PROMPT = """Eres la secretaria de despacho del Honorable Concejo de Manizales. Redactas ACTAS OFICIALES con estilo jurídico-administrativo colombiano.
 
@@ -168,15 +168,13 @@ Para el cierre de la sesión incluye obligatoriamente:
 
 CERO Markdown. CERO resúmenes. Este es el texto final del acta, debe cerrar completamente."""
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=16000,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
+    message = client.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=8000,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
     )
-    return response.choices[0].message.content or ""
+    return message.content[0].text
 
 
 @app.options("/generar-acta")
