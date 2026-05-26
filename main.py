@@ -74,6 +74,11 @@ class ActaRequest(BaseModel):
     youtubeUrl: str
 
 
+class ActaDocxRequest(BaseModel):
+    acta: str
+    youtubeUrl: str | None = None
+
+
 async def get_transcript(youtube_url: str) -> str:
     async with httpx.AsyncClient(timeout=60.0) as http:
         resp = await http.get(
@@ -229,16 +234,26 @@ async def generar_acta(req: ActaRequest):
 
 
 @app.post("/generar-acta-docx")
-async def generar_acta_docx(req: ActaRequest):
-    transcripcion = await get_transcript(req.youtubeUrl)
-    parte1 = generar_parte(transcripcion, 1)
-    parte2 = generar_parte(transcripcion, 2, parte1)
-    parte3 = generar_parte(transcripcion, 3, parte2)
-    parte4 = generar_parte(transcripcion, 4, parte3)
-    acta_completa = parte1 + "\n\n" + parte2 + "\n\n" + parte3 + "\n\n" + parte4
+async def generar_acta_docx(req: ActaDocxRequest):
+    acta_completa = (req.acta or "").strip()
+    if not acta_completa:
+        if not req.youtubeUrl:
+            raise HTTPException(
+                status_code=400,
+                detail="Envía el texto del acta en 'acta' o una URL en 'youtubeUrl'.",
+            )
+        transcripcion = await get_transcript(req.youtubeUrl)
+        parte1 = generar_parte(transcripcion, 1)
+        parte2 = generar_parte(transcripcion, 2, parte1)
+        parte3 = generar_parte(transcripcion, 3, parte2)
+        parte4 = generar_parte(transcripcion, 4, parte3)
+        acta_completa = parte1 + "\n\n" + parte2 + "\n\n" + parte3 + "\n\n" + parte4
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-    texto_a_docx(acta_completa, tmp.name)
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        texto_a_docx(acta_completa, tmp.name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando DOCX: {str(e)}") from e
 
     return FileResponse(
         tmp.name,
