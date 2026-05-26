@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from pydantic import BaseModel
 import httpx
 import anthropic
 import os
+import tempfile
+from generar_docx import texto_a_docx
 
 app = FastAPI()
 
@@ -224,6 +226,25 @@ async def generar_acta(req: ActaRequest):
     acta_completa = parte1 + "\n\n" + parte2 + "\n\n" + parte3 + "\n\n" + parte4
 
     return {"acta": acta_completa, "palabras": len(acta_completa.split())}
+
+
+@app.post("/generar-acta-docx")
+async def generar_acta_docx(req: ActaRequest):
+    transcripcion = await get_transcript(req.youtubeUrl)
+    parte1 = generar_parte(transcripcion, 1)
+    parte2 = generar_parte(transcripcion, 2, parte1)
+    parte3 = generar_parte(transcripcion, 3, parte2)
+    parte4 = generar_parte(transcripcion, 4, parte3)
+    acta_completa = parte1 + "\n\n" + parte2 + "\n\n" + parte3 + "\n\n" + parte4
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    texto_a_docx(acta_completa, tmp.name)
+
+    return FileResponse(
+        tmp.name,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="Acta_Concejo_Manizales.docx",
+    )
 
 
 @app.get("/health")
