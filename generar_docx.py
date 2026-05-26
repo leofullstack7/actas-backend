@@ -7,7 +7,19 @@ from pathlib import Path
 import re
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
-LOGO_PATH = ASSETS_DIR / "logo_concejo.png"
+LOGO_CANDIDATES = (
+    "logo_concejo.jpg",
+    "logo_concejo.jpeg",
+    "logo_concejo.png",
+)
+
+
+def resolver_logo() -> Path | None:
+    for nombre in LOGO_CANDIDATES:
+        ruta = ASSETS_DIR / nombre
+        if ruta.is_file():
+            return ruta
+    return None
 
 MESES = {
     "enero": "Enero",
@@ -84,13 +96,14 @@ def agregar_encabezado(doc: Document, metadatos: dict):
 
     cell_logo, cell_titulo = table.rows[0].cells[0], table.rows[0].cells[1]
 
-    if LOGO_PATH.is_file():
+    logo_path = resolver_logo()
+    if logo_path:
         p_logo = cell_logo.paragraphs[0]
         run_logo = p_logo.add_run()
-        run_logo.add_picture(str(LOGO_PATH), width=Cm(2.6))
+        run_logo.add_picture(str(logo_path), width=Cm(2.6))
     else:
         p_logo = cell_logo.paragraphs[0]
-        p_logo.add_run("[Logo: assets/logo_concejo.png]").font.size = Pt(9)
+        p_logo.add_run("[Logo: assets/logo_concejo.jpg]").font.size = Pt(9)
 
     p1 = cell_titulo.paragraphs[0]
     r1 = p1.add_run("Concejo de")
