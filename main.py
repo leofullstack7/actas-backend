@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -265,6 +265,26 @@ async def generar_acta_docx(req: ActaDocxRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/generar-prompt-notebooklm")
+async def generar_prompt_notebooklm(req: dict = Body(...)):
+    acta = req.get("acta", "")
+    if not acta:
+        raise HTTPException(status_code=422, detail="No se proporcionó el acta.")
+    resumen_acta = acta[:8000]
+    message = client.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=1000,
+        system="Eres un experto en comunicación institucional del Concejo de Manizales.",
+        messages=[{"role": "user", "content": f"""Basándote en esta acta del Concejo de Manizales, genera un prompt en español para NotebookLM que indique cómo crear una presentación institucional moderna con máximo 10 diapositivas, estilo formal pero visual, colores verde (#2E7D32), azul (#1565C0) y rojo (#C62828), portada con título y fecha, diapositiva de concejales presentes, una diapositiva por punto del orden del día con argumentos clave, y diapositiva final de conclusiones.
+
+ACTA:
+{resumen_acta}
+
+Devuelve SOLO el prompt, sin explicaciones."""}],
+    )
+    return {"prompt": message.content[0].text}
 
 
 if __name__ == "__main__":
