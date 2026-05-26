@@ -202,7 +202,7 @@ Secretaria de Despacho
 CERO Markdown. CERO resúmenes. Cierra el documento completamente."""
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=8000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_prompt}],
